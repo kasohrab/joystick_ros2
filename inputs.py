@@ -1999,7 +1999,7 @@ class InputDevice(object):
     # pylint: disable=too-many-instance-attributes
     def __init__(self, manager, device_path,
                  char_path_override=None,
-                 read_size=1):
+                 read_size=1024):
         self.read_size = read_size
         self.manager = manager
         self._device_path = device_path
@@ -2046,7 +2046,7 @@ class InputDevice(object):
                 return self._character_file
             try:
                 self._character_file = io.open(
-                    self._character_device_path, 'rb')
+                    self._character_device_path, 'rb', opener=lambda n, f: os.open(n, f|os.O_NONBLOCK))
             except IOError as err:
                 if err.errno == 13:
                     raise PermissionDenied(
@@ -2059,10 +2059,9 @@ class InputDevice(object):
         return self._character_file
 
     def __iter__(self):
-        while True:
-            event = self._do_iter()
-            if event:
-                yield event
+        events = self._do_iter()
+        for e in events:
+            yield e
 
     def _get_data(self, read_size):
         """Get data from the character device."""
@@ -2081,7 +2080,7 @@ class InputDevice(object):
             read_size = EVENT_SIZE
         data = self._get_data(read_size)
         if not data:
-            return
+            return []
         evdev_objects = iter_unpack(data)
         events = [self._make_event(*event) for event in evdev_objects]
         return events
@@ -2187,14 +2186,6 @@ class GamePad(InputDevice):
                 self.__received_packets = 0
                 self.__missed_packets = 0
                 self.__last_state = self.__read_device()
-
-    def __iter__(self):
-        while True:
-            if WIN:
-                self.__check_state()
-            event = self._do_iter()
-            if event:
-                yield event
 
     def __check_state(self):
         """On Windows, check the state and fill the event character device."""

@@ -18,10 +18,11 @@ from math import modf
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import SingleThreadedExecutor
 
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Header
-from inputs import devices, UnpluggedError
+from inputs import devices, UnpluggedError, GamePad
 
 # Microsoft X-Box 360 pad
 XINPUT_CODE_MAP = {
@@ -183,15 +184,19 @@ JOYSTICK_CODE_VALUE_MAP = {
 
 class JoystickRos2(Node):
 
+    DEFAULT_DEADZONE: float = 0.05
+    DEFAULT_AUTOREPEAT_RATE: float = 0.0
+    DEFAULT_COALESCE_INTERVAL: float = 0.001
+    DEFAULT_SLEEP_TIME: float = 0.01
+
     def __init__(self):
         super().__init__('joystick_ros2')
 
-        # Node params
-        # TODO : use rosparam
-        self.deadzone = 0.1
-        self.autorepeat_rate = 0.0
-        self.coalesce_interval = 0.001
-        self.sleep_time = 0.01
+        self.declare_parameters(None, [
+            ("deadzone", self.DEFAULT_DEADZONE),
+            ("autorepeat_rate", self.DEFAULT_AUTOREPEAT_RATE),
+            ("coalesce_interval", self.DEFAULT_COALESCE_INTERVAL),
+        ])
 
         # Joy message
         self.joy = Joy()
@@ -207,13 +212,28 @@ class JoystickRos2(Node):
         self.last_event = None
         self.last_publish_time = 0
 
+        # Timers
+        self.device_timers = self.create_timer(1.0, self.detect_devices)
+        self.run_timer = self.create_timer(0.01, self.run_one)
+
+    @property
+    def deadzone(self) -> float:
+        return self.get_parameter_or('deadzone', self.DEFAULT_DEADZONE).value
+
+    @property
+    def autorepeat_rate(self) -> float:
+        return self.get_parameter_or('autorepeat_rate', self.DEFAULT_AUTOREPEAT_RATE).value
+
+    @property
+    def coalesce_interval(self) -> float:
+        return self.get_parameter_or('coalesce_interval', self.DEFAULT_COALESCE_INTERVAL).value
+
     def publish_joy(self):
         current_time = modf(time.time())
         self.joy.header.stamp.sec = int(current_time[1])
         self.joy.header.stamp.nanosec = int(current_time[0] * 1000000000) & 0xffffffff
         self.publisher_.publish(self.joy)
         self.last_publish_time = time.time()
-        #print(self.joy)
 
     def normalize_key_value(self, key_value_min, key_value_max, key_value):
         normalized = ((key_value - key_value_min) / (key_value_max - key_value_min) * (-2)) + 1
@@ -222,78 +242,62 @@ class JoystickRos2(Node):
         else:
             return 0.0
 
-    def run(self):
-        device_manager = devices
-        while rclpy.ok():
-            # get the first joystick
-            try:
-                gamepad = device_manager.gamepads[0]
-            except IndexError:
-                print('Joystick not found. Will retry every second.')
-                time.sleep(1)
-                device_manager.find_devices()
-                continue
+    def detect_devices(self):
+        devices.find_devices()
 
-            # detected joystick is not keymapped yet
-            if (gamepad.name not in JOYSTICK_CODE_VALUE_MAP):
-                print('Sorry, joystick type not supported yet! Please plug in supported joystick')
-                time.sleep(1)
-                device_manager.find_devices()
-                continue
+        if len(devices.gamepads) == 0:
+            self.get_logger().warning('No joystick was found. Rescanning')
+            return
 
-            # check unplugged joystick
-            if (platform.system() == 'Windows'):
-                try:
-                    gamepad._GamePad__check_state()
-                except UnpluggedError:
-                    device_manager.find_devices()
-                    continue
+        if devices.gamepads[0].name not in JOYSTICK_CODE_VALUE_MAP:
+            self.get_logger().warning('Sorry, joystick type not supported yet! Please plug in supported joystick')
+            return
 
-            # read inputs from joystick
-            while True:
-                try:
-                    events = gamepad._do_iter()
-                # check unplugged joystick
-                except OSError:
-                    print('Joystick not found. Will retry every second.')
-                    time.sleep(1)
-                    device_manager.find_devices()
-                    break
-                if events:
-                    for event in events:
-                        if (event.code in JOYSTICK_CODE_VALUE_MAP[event.device.name][0]):
-                            key_code = JOYSTICK_CODE_VALUE_MAP[event.device.name][0][event.code]
-                            if (event.ev_type == 'Key'):
-                                self.joy.buttons[key_code] = event.state
-                                self.publish_joy()
-                                self.last_event = event
-                            elif (event.ev_type == 'Absolute'):
-                                value_range = JOYSTICK_CODE_VALUE_MAP[event.device.name][1][key_code]
-                                self.joy.axes[key_code] = self.normalize_key_value(value_range[0], value_range[1], event.state)
-                                if (self.last_event is None) or (self.last_event.code != event.code) or (time.time() - self.last_publish_time > self.coalesce_interval):
-                                    self.publish_joy()
-                                self.last_event = event
-                else:
-                    break
-            ## autorepeat
-            if ((self.autorepeat_rate > 0.0) and (time.time() - self.last_publish_time > 1/self.autorepeat_rate)):
-                self.publish_joy()
 
-            # sleep to decrease cpu usage
-            time.sleep(self.sleep_time)
+    def run_one(self):
+        try:
+            gamepad: GamePad = devices.gamepads[0]
+        except IndexError:
+            return
+
+        try:
+            for event in gamepad:
+                if (event.code in JOYSTICK_CODE_VALUE_MAP[event.device.name][0]):
+                    key_code = JOYSTICK_CODE_VALUE_MAP[event.device.name][0][event.code]
+                    if (event.ev_type == 'Key'):
+                        self.joy.buttons[key_code] = event.state
+                        self.publish_joy()
+                        self.last_event = event
+                    elif (event.ev_type == 'Absolute'):
+                        value_range = JOYSTICK_CODE_VALUE_MAP[event.device.name][1][key_code]
+                        self.joy.axes[key_code] = self.normalize_key_value(value_range[0], value_range[1], event.state)
+                        if (self.last_event is None) or (self.last_event.code != event.code) or (time.time() - self.last_publish_time > self.coalesce_interval):
+                            self.publish_joy()
+                        self.last_event = event
+        except OSError:
+            pass
+
+        if ((self.autorepeat_rate > 0.0) and (time.time() - self.last_publish_time > 1/self.autorepeat_rate)):
+            self.publish_joy()
+
 
 def main(args=None):
     rclpy.init(args=args)
 
-    joystick_ros2 = JoystickRos2()
-    joystick_ros2.run()
+    try:
+        joystick_ros2 = JoystickRos2()
+        executor = SingleThreadedExecutor()
+        executor.add_node(joystick_ros2)
 
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
-    joystick_ros2.destroy_node()
-    rclpy.shutdown()
-
+        try:
+            executor.spin()
+        finally:
+            executor.shutdown()
+            joystick_ros2.destroy_node()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
