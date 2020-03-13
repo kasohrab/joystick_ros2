@@ -159,11 +159,26 @@ XONE_VALUE_MAP = {
     7: (-1, 1)
 }
 
+# Microsoft X-Box One pad
+XONE_S_CODE_MAP = XONE_CODE_MAP
+
+XONE_S_VALUE_MAP = {
+    0: (-32768, 32767),
+    1: (-32768, 32767),
+    2: (-1023, 1023),
+    3: (-32768, 32767),
+    4: (-32768, 32767),
+    5: (-1023, 1023),
+    6: (-1, 1),
+    7: (-1, 1)
+}
+
 JOYSTICK_CODE_VALUE_MAP = {
     'Microsoft X-Box 360 pad': (XINPUT_CODE_MAP, XINPUT_VALUE_MAP),
     'Sony Computer Entertainment Wireless Controller': (PS4_CODE_MAP, PS4_VALUE_MAP),
     'Logitech Gamepad F710': (F710_CODE_MAP, F710_VALUE_MAP),
-    'Microsoft X-Box One pad': (XONE_CODE_MAP, XONE_VALUE_MAP)
+    'Microsoft X-Box One pad': (XONE_CODE_MAP, XONE_VALUE_MAP),
+    'Microsoft X-Box One S pad': (XONE_S_CODE_MAP, XONE_S_VALUE_MAP),
 }
 
 class JoystickRos2(Node):
