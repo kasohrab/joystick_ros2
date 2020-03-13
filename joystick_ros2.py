@@ -188,7 +188,7 @@ class JoystickRos2(Node):
 
         # Node params
         # TODO : use rosparam
-        self.deadzone = 0.05
+        self.deadzone = 0.1
         self.autorepeat_rate = 0.0
         self.coalesce_interval = 0.001
         self.sleep_time = 0.01
