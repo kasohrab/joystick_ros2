@@ -16,6 +16,7 @@ setup(
         ('shared/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
+    zip_safe=True,
     maintainer='Muhammad Furqan Habibi',
     maintainer_email='furqan.habibi1@gmail.com',
     author='Muhammad Furqan Habibi',
