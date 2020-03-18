@@ -18,10 +18,11 @@ from math import modf
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy
 from rclpy.executors import SingleThreadedExecutor
 
 from sensor_msgs.msg import Joy
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Bool
 from inputs import devices, UnpluggedError, GamePad
 
 # Microsoft X-Box 360 pad
@@ -205,12 +206,21 @@ class JoystickRos2(Node):
         self.joy.axes = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.joy.buttons = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        # Joy publisher
-        self.publisher_ = self.create_publisher(Joy, 'joy', 10)
+        # Publishers
+        self.controls_publisher = self.create_publisher(Joy, 'joystick_data', 10)
+        self.status_publisher = self.create_publisher(Bool,
+            'status/joystick_connected',
+            qos_profile=QoSProfile(
+                durability=QoSDurabilityPolicy.RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
+                depth=1
+            ))
 
         # logic params
+        self.last_status = None
         self.last_event = None
         self.last_publish_time = 0
+
+        self.publish_status(self.last_status)
 
         # Timers
         self.device_timers = self.create_timer(1.0, self.detect_devices)
@@ -232,8 +242,13 @@ class JoystickRos2(Node):
         current_time = modf(time.time())
         self.joy.header.stamp.sec = int(current_time[1])
         self.joy.header.stamp.nanosec = int(current_time[0] * 1000000000) & 0xffffffff
-        self.publisher_.publish(self.joy)
+        self.controls_publisher.publish(self.joy)
         self.last_publish_time = time.time()
+
+    def publish_status(self, connected: bool):
+        if self.last_status != connected:
+            self.status_publisher.publish(Bool(data=connected))
+            self.last_status = connected
 
     def normalize_key_value(self, key_value_min, key_value_max, key_value):
         normalized = ((key_value - key_value_min) / (key_value_max - key_value_min) * (-2)) + 1
@@ -246,18 +261,23 @@ class JoystickRos2(Node):
         devices.find_devices()
 
         if len(devices.gamepads) == 0:
-            self.get_logger().warning('No joystick was found. Rescanning')
+            self.publish_status(False)
+            self.get_logger().debug('No joystick was found. Rescanning')
             return
 
         if devices.gamepads[0].name not in JOYSTICK_CODE_VALUE_MAP:
-            self.get_logger().warning('Sorry, joystick type not supported yet! Please plug in supported joystick')
+            self.publish_status(False)
+            self.get_logger().error('Sorry, joystick type not supported yet! Please plug in supported joystick')
             return
+
+        self.publish_status(True)
 
 
     def run_one(self):
         try:
             gamepad: GamePad = devices.gamepads[0]
         except IndexError:
+            self.publish_status(False)
             return
 
         try:
@@ -275,7 +295,8 @@ class JoystickRos2(Node):
                             self.publish_joy()
                         self.last_event = event
         except OSError:
-            pass
+            self.publish_status(False)
+            return
 
         if ((self.autorepeat_rate > 0.0) and (time.time() - self.last_publish_time > 1/self.autorepeat_rate)):
             self.publish_joy()
