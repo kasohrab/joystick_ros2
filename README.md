@@ -1,6 +1,9 @@
 # joystick_ros2
 The first joystick driver for ROS2 created from scratch to support all platforms: Linux, OS X, Windows.
-
+## Pre-req
+```
+$ sudo apt install python3-colcon-common-extensions
+```
 ## Install
 ```
 # with ROS2 already sourced
