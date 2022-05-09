@@ -4,13 +4,12 @@ The first joystick driver for ROS2 created from scratch to support all platforms
 ## Install
 ```
 # with ROS2 already sourced
-$ cd <ros2_workspace>/src
-$ git clone https://github.com/FurqanHabibi/joystick_ros2
-$ cd ..
-$ ament build
+$ cd external/
+$ git clone https://github.com/kasohrab/joystick_ros2
+$ colcon build --symlink-install
 
 # for Linux / OS X
-$ source install/local_setup.bash
+$ source install/local_setup.sh
 
 # for Windows
 $ call install/local_setup.bat
@@ -37,12 +36,13 @@ Linux, Mac OSX:
 ## ROS2 Node
 ### Published Topics
 - joy ([sensor_msgs/Joy](https://github.com/ros2/common_interfaces/blob/master/sensor_msgs/msg/Joy.msg))
+- a bool whether or not the joystick is connected
 
     Outputs the joystick state.
 ### Parameters
 TODO : use ros2 param when it becomes available on rclpy.
 
-- ~deadzone (double, default: 0.05)
+- ~deadzone (double, default: 0.1)
 
     Amount by which the joystick has to move before it is considered to be off-center. This parameter is specified relative to an axis normalized between -1 and 1. Thus, 0.1 means that the joystick has to move 10% of the way to the edge of an axis's range before that axis will output a non-zero value. Linux does its own deadzone processing, so in many cases this value can be set to zero.
 
